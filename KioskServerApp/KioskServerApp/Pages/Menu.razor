@@ -1,0 +1,229 @@
+﻿@page "/menu"
+@using MongoDB.Driver
+@inject MongoDBService MongoDBService
+
+<h3>Menu</h3>
+
+@if (isLoading)
+{
+    <div class="spinner-border" role="status">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+}
+else if (categories == null || !categories.Any())
+{
+    <p>No categories found.</p>
+}
+else
+{
+    <nav class="navbar navbar-expand-lg navbar-light bg-light">
+        <a class="navbar-brand" href="#">Kiosk</a>
+        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav">
+                @foreach (var category in categories)
+                {
+                    <li class="nav-item">
+                        <button class="nav-link btn btn-link" @onclick='() => FilterCategory(category)'>@category.Name</button>
+                    </li>
+                }
+                <li class="nav-item">
+                    <button class="nav-link btn btn-link text-danger" @onclick="ResetFilter">Reset</button>
+                </li>
+            </ul>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-12 col-md-8">
+                <h3>Kiosk</h3>
+
+                @if (DisplayedProducts == null || !DisplayedProducts.Any())
+                {
+                    <p>No products found.</p>
+                }
+                else
+                {
+                    <div class="row">
+                        @foreach (var product in DisplayedProducts)
+                        {
+                            <div class="col-12 col-sm-6 col-md-4 col-lg-3 mb-3">
+                                <div class="card" style="cursor: pointer;" @onclick="() => AddToCart(product)">
+                                    <img src="@product.ImageUrl" class="card-img-top" alt="@product.Name">
+                                    <div class="card-body">
+                                        <h5 class="card-title">@product.Name</h5>
+                                        <p class="price">@product.Price.ToString("0.00") CHF</p>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+            <div class="col-12 col-md-4">
+                <h3>Rechnung</h3>
+                @if (cart.Any())
+                {
+                    <ul class="list-group">
+                        @foreach (var item in cart)
+                        {
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                <span>
+                                    @item.Product.Name
+                                    <br />
+                                    @item.Quantity x @item.Product.Price.ToString("0.00") CHF = @(item.Quantity * item.Product.Price) CHF
+                                </span>
+                                <span>
+                                    <button class="btn btn-danger btn-sm" @onclick="() => RemoveOneFromCart(item)">
+                                        <i class="oi oi-minus"></i>
+                                    </button>
+                                    <button class="btn btn-danger btn-sm" @onclick="() => RemoveFromCart(item)">
+                                        <i class="oi oi-trash"></i>
+                                    </button>
+                                </span>
+                            </li>
+                        }
+                    </ul>
+                    <div class="mt-3">
+                        <h5>Total: @CalculateTotal().ToString("0.00") CHF</h5>
+                    </div>
+                }
+                else
+                {
+                    <p>Rechnung ist leer.</p>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Category> categories;
+    private List<Product> DisplayedProducts = new List<Product>();
+    private List<CartItem> cart = new List<CartItem>();
+    private bool isLoading = true;
+
+    private class CartItem
+    {
+        public Product Product { get; set; }
+        public int Quantity { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var categoryCollection = MongoDBService.GetCategoryCollection();
+            categories = await categoryCollection.Find(Builders<Category>.Filter.Empty).ToListAsync();
+
+            // Aggregate all products into DisplayedProducts
+            DisplayedProducts = categories.SelectMany(cat => cat.Products.Values).ToList();
+
+            // Debug output
+            if (categories != null && categories.Any())
+            {
+                Console.WriteLine($"Fetched {categories.Count} categories.");
+            }
+            else
+            {
+                Console.WriteLine("No categories fetched.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error fetching categories: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void FilterCategory(Category category)
+    {
+        // Update DisplayedProducts based on the selected category
+        DisplayedProducts = category.Products.Values.ToList();
+    }
+
+    private void ResetFilter()
+    {
+        // Reset to show all products
+        DisplayedProducts = categories.SelectMany(cat => cat.Products.Values).ToList();
+    }
+
+    private void AddToCart(Product product)
+    {
+        var cartItem = cart.FirstOrDefault(item => item.Product.Id == product.Id);
+        if (cartItem != null)
+        {
+            cartItem.Quantity++;
+        }
+        else
+        {
+            cart.Add(new CartItem { Product = product, Quantity = 1 });
+        }
+    }
+
+    private void RemoveOneFromCart(CartItem item)
+    {
+        if (item.Quantity > 1)
+        {
+            item.Quantity--;
+        }
+        else
+        {
+            cart.Remove(item);
+        }
+    }
+
+    private void RemoveFromCart(CartItem item)
+    {
+        cart.Remove(item);
+    }
+
+    private decimal CalculateTotal()
+    {
+        return cart.Sum(item => item.Quantity * item.Product.Price);
+    }
+}
+
+<style>
+    .card {
+        border-radius: 5px;
+        box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.4);
+        margin-bottom: 20px;
+        transition: transform 0.2s ease;
+    }
+
+    .card-img-top {
+        width: 100%;
+        height: 150px;
+        object-fit: cover;
+    }
+
+    .card:hover {
+        transform: scale(1.05);
+    }
+
+    .img-fixed {
+        height: 150px;
+        object-fit: cover;
+    }
+
+    .list-group-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .price {
+        font-weight: bold;
+    }
+
+    .btn-sm {
+        margin-left: 5px;
+    }
+</style>
